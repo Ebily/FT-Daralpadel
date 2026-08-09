@@ -1,13 +1,9 @@
 # FT — Financial Tracker
 
-Bilingual Arabic/English business expense tracker with a responsive dashboard, Excel import/export, Google Sheets shared storage, and local offline cache.
+GitHub Pages frontend connected to Supabase.
 
-## Files
-- `index.html` — application entry point
-- `styles.css` — responsive UI
-- `app.js` — FT dashboard and expense logic
-- `config.js` — Google Apps Script Web App connection
-- `google-apps-script/Code.gs` — shared Google Sheets API
-- `GOOGLE-SHEETS-SETUP.md` — complete setup instructions
+## Deploy
+Upload the files in this folder to the repository root, then enable GitHub Pages from the main branch/root.
 
-Read `GOOGLE-SHEETS-SETUP.md` before deployment.
+## Security
+This frontend contains only the Supabase publishable key. Never add a secret/service-role key to this repository. Database access is protected by Supabase Auth and Row Level Security (RLS).
