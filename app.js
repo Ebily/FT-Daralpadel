@@ -5,73 +5,36 @@ const FT_CFG=window.FT_CONFIG||{};
 let S={lang:localStorage.ft_lang||'en',theme:localStorage.ft_theme||'light',active:'dashboard',mobile:false,editing:null,expenses:load('ft_expenses',SAMPLE),settings:load('ft_settings',{businessName:'My Business',currency:'LYD'}),charts:[],cloudStatus:FT_CFG.apiUrl?'loading':'offline',syncing:false};
 function load(k,d){try{let x=JSON.parse(localStorage.getItem(k));return x??d}catch{return d}}function save(){localStorage.setItem('ft_expenses',JSON.stringify(S.expenses));localStorage.setItem('ft_settings',JSON.stringify(S.settings));localStorage.ft_lang=S.lang;localStorage.ft_theme=S.theme}
 function cloudConfigured(){return !!(FT_CFG.apiUrl&&FT_CFG.accessKey&&!String(FT_CFG.apiUrl).startsWith('PASTE_')&&!String(FT_CFG.accessKey).startsWith('CHANGE_'))}
-let FT_BRIDGE=null,FT_BRIDGE_READY=null,FT_BRIDGE_PENDING=new Map();
-function ensureBridge(){
-  if(FT_BRIDGE_READY)return FT_BRIDGE_READY;
-  FT_BRIDGE_READY=new Promise((resolve,reject)=>{
-    const frame=document.createElement('iframe');
-    frame.id='ft-cloud-bridge';
-    frame.src=FT_CFG.apiUrl;
-    frame.style.cssText='position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;border:0;left:-9999px;top:-9999px';
-    const timer=setTimeout(()=>reject(Error('Google Apps Script bridge timeout')),15000);
-    frame.onload=()=>{clearTimeout(timer);FT_BRIDGE=frame;resolve(frame)};
-    frame.onerror=()=>{clearTimeout(timer);reject(Error('Could not load Google Apps Script bridge'))};
-    document.body.appendChild(frame);
-  });
-  return FT_BRIDGE_READY;
-}
-window.addEventListener('message', e => {
-  if (!FT_CFG.apiUrl) return;
-
-  let allowed = false;
-
-  try {
-    const originUrl = new URL(e.origin);
-
-    allowed =
-      originUrl.hostname === 'script.google.com' ||
-      originUrl.hostname === 'script.googleusercontent.com' ||
-      originUrl.hostname.endsWith('.googleusercontent.com');
-  } catch {
-    return;
-  }
-
-  if (!allowed) return;
-
-  const m = e.data || {};
-
-  if (
-    m.type !== 'FT_BRIDGE_RESPONSE' ||
-    !m.requestId
-  ) {
-    return;
-  }
-
-  const pending = FT_BRIDGE_PENDING.get(m.requestId);
-
-  if (!pending) return;
-
-  FT_BRIDGE_PENDING.delete(m.requestId);
-  clearTimeout(pending.timer);
-
-  if (m.ok) {
-    pending.resolve(m.data);
-  } else {
-    pending.reject(
-      Error(m.error || 'Cloud request failed')
-    );
-  }
-});
+// --- Cloud transport: plain fetch() JSON calls to the Apps Script Web App. ---
+// No iframe, no postMessage, no google.script.run. google.script.run only works
+// for HTML that Apps Script itself serves as the top-level page (or as a
+// Workspace add-on/sidebar) — it silently fails when that HTML is nested in a
+// cross-origin iframe from GitHub Pages, which is why ftApi never ran.
 async function cloudRequest(action,data={}){
   if(!cloudConfigured())throw Error('FT cloud is not configured');
-  const frame=await ensureBridge();
-  const requestId='ft_'+Date.now()+'_'+Math.random().toString(36).slice(2);
-  const payload={type:'FT_BRIDGE_REQUEST',requestId,payload:{action,key:FT_CFG.accessKey,...data}};
-  return new Promise((resolve,reject)=>{
-    const timer=setTimeout(()=>{FT_BRIDGE_PENDING.delete(requestId);reject(Error('Google Sheets request timeout'))},20000);
-    FT_BRIDGE_PENDING.set(requestId,{resolve,reject,timer});
-    frame.contentWindow.postMessage(payload,'*');
-  });
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),20000);
+  let res;
+  try{
+    res=await fetch(FT_CFG.apiUrl,{
+      method:'POST',
+      // text/plain keeps this a CORS "simple request" so the browser skips the
+      // OPTIONS preflight that Apps Script web apps have no way to answer.
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action,key:FT_CFG.accessKey,...data}),
+      signal:controller.signal
+    });
+  }catch(err){
+    if(err.name==='AbortError')throw Error('Google Sheets request timeout');
+    throw Error('Network error reaching Google Sheets: '+err.message);
+  }finally{
+    clearTimeout(timer);
+  }
+  if(!res.ok)throw Error('Cloud request failed: HTTP '+res.status);
+  let out;
+  try{out=await res.json()}catch{throw Error('Cloud returned an unexpected response')}
+  if(!out.ok)throw Error(out.error||'Cloud request failed');
+  return out;
 }
 async function syncCloud(showToast=false){if(!cloudConfigured()){S.cloudStatus='offline';render();return}if(S.syncing)return;S.syncing=true;S.cloudStatus='loading';render();try{let local=[...S.expenses],out=await cloudRequest('bootstrap');let remote=Array.isArray(out.expenses)?out.expenses:[];if(!remote.length&&local.length){await cloudRequest('bulkUpsert',{expenses:local});remote=local;if(showToast)toast(t('migrated'));}S.expenses=remote;if(out.settings&&Object.keys(out.settings).length)S.settings={...S.settings,...out.settings};S.cloudStatus='online';save();render();if(showToast)toast(t('syncDone'));}catch(e){console.error(e);S.cloudStatus='offline';render();if(showToast)toast(t('syncError'));}finally{S.syncing=false}}
 async function cloudMutation(action,data){save();if(!cloudConfigured()){S.cloudStatus='offline';return false}try{S.cloudStatus='loading';render();await cloudRequest(action,data);S.cloudStatus='online';render();return true}catch(e){console.error(e);S.cloudStatus='offline';render();toast(t('syncError'));return false}}

@@ -1,8 +1,12 @@
 /**
- * FT — Financial Tracker Google Sheets Bridge API
+ * FT — Financial Tracker JSON API
  * Deploy as a Google Apps Script Web App.
  * Execute as: Me
  * Who has access: Anyone
+ *
+ * This is a plain JSON REST endpoint (doGet/doPost + ContentService).
+ * The frontend (GitHub Pages) calls it with ordinary fetch() — no iframe,
+ * no postMessage, no google.script.run. See README-ARCHITECTURE.md for why.
  */
 
 const SPREADSHEET_ID = '1e7S22MzhVP5n8d0JbOjy2V-ePc5_WHAtFuTg5FBnuA4';
@@ -11,34 +15,37 @@ const EXPENSES_SHEET = 'FT_Expenses';
 const SETTINGS_SHEET = 'FT_Settings';
 const HEADERS = ['id','date','description','category','quantity','unitCost','supplier','payment','notes','updatedAt'];
 
-// Serves a tiny browser bridge. The GitHub Pages app talks to this iframe via postMessage.
-// The bridge then calls server-side Apps Script functions through google.script.run.
-function doGet() {
-  const html = `<!doctype html><html><head><base target="_top"><meta charset="utf-8"></head><body>
-<script>
-window.addEventListener('message', function(event) {
-  var m = event.data || {};
-  if (m.type !== 'FT_BRIDGE_REQUEST' || !m.requestId) return;
-  var source = event.source;
-  var origin = event.origin || '*';
-  google.script.run
-    .withSuccessHandler(function(result) {
-      source.postMessage({type:'FT_BRIDGE_RESPONSE',requestId:m.requestId,ok:true,data:result}, origin === 'null' ? '*' : origin);
-    })
-    .withFailureHandler(function(err) {
-      source.postMessage({type:'FT_BRIDGE_RESPONSE',requestId:m.requestId,ok:false,error:(err && err.message) || String(err)}, origin === 'null' ? '*' : origin);
-    })
-    .ftApi(m.payload || {});
-});
-// Let the parent know that the bridge JavaScript is alive.
-try { parent.postMessage({type:'FT_BRIDGE_LOADED'}, '*'); } catch(e) {}
-<\/script></body></html>`;
-  return HtmlService.createHtmlOutput(html)
-    .setTitle('FT Cloud Bridge')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+// GET /exec?action=bootstrap&key=... — mainly useful for a quick health check
+// straight from a browser address bar or curl. The frontend itself only uses POST.
+function doGet(e) {
+  const params = (e && e.parameter) || {};
+  return jsonOutput_(handleAction_(params));
 }
 
-function ftApi(body) {
+// POST /exec — body is a JSON string, but the request is sent with
+// Content-Type: text/plain from the client. That keeps it a CORS "simple
+// request" so the browser skips an OPTIONS preflight, which Apps Script
+// web apps cannot answer. We parse the JSON ourselves on this side.
+function doPost(e) {
+  let body = {};
+  try {
+    body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+  } catch (err) {
+    return jsonOutput_({ ok: false, error: 'Invalid JSON body' });
+  }
+  return jsonOutput_(handleAction_(body));
+}
+
+function jsonOutput_(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// Every request — read or write — funnels through here. Always returns a
+// plain object; never throws, so doGet/doPost can always hand back valid JSON
+// instead of Apps Script's default HTML error page (which would break
+// res.json() on the client).
+function handleAction_(body) {
   const lock = LockService.getScriptLock();
   try {
     lock.waitLock(20000);
@@ -50,10 +57,10 @@ function ftApi(body) {
       case 'bootstrap':
         return { ok: true, expenses: readExpenses_(), settings: readSettings_() };
       case 'upsert':
-        upsertExpense_(body.expense);
+        upsertExpense_(parseExpense_(body.expense));
         return { ok: true };
       case 'bulkUpsert':
-        (body.expenses || []).forEach(upsertExpense_);
+        (body.expenses || []).forEach(x => upsertExpense_(parseExpense_(x)));
         return { ok: true };
       case 'delete':
         deleteExpense_(String(body.id || ''));
@@ -65,11 +72,20 @@ function ftApi(body) {
         clearExpenses_();
         return { ok: true };
       default:
-        throw new Error('Unsupported action');
+        throw new Error('Unsupported action: ' + body.action);
     }
+  } catch (err) {
+    return { ok: false, error: (err && err.message) || String(err) };
   } finally {
     try { lock.releaseLock(); } catch (_) {}
   }
+}
+
+// doGet delivers action params as strings (query string), doPost delivers a
+// real object (parsed JSON). Normalize so upsert/bulkUpsert work from either.
+function parseExpense_(x) {
+  if (x && typeof x === 'string') { try { return JSON.parse(x); } catch (_) { return {}; } }
+  return x || {};
 }
 
 function setupSheets_() {
