@@ -3,8 +3,9 @@
  * Deploy this project as a Google Apps Script Web App.
  */
 
-const SPREADSHEET_ID = 'PASTE_YOUR_GOOGLE_SHEET_ID_HERE';
-const ACCESS_KEY = 'CHANGE_THIS_TO_YOUR_PRIVATE_FT_KEY';
+
+const SPREADSHEET_ID = '1e7S22MzhVP5n8d0JbOjy2V-ePc5_WHAtFuTg5FBnuA4';
+const ACCESS_KEY = 'FT-2026-daralpadel-Hamid';
 const EXPENSES_SHEET = 'FT_Expenses';
 const SETTINGS_SHEET = 'FT_Settings';
 const HEADERS = ['id','date','description','category','quantity','unitCost','supplier','payment','notes','updatedAt'];

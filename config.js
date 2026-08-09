@@ -4,6 +4,6 @@
    3) Use the SAME access key that you put in Code.gs.
 */
 window.FT_CONFIG = {
-  apiUrl: 'PASTE_YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL_HERE',
-  accessKey: 'CHANGE_THIS_TO_YOUR_PRIVATE_FT_KEY'
+  apiUrl: 'https://script.google.com/macros/s/AKfycbwkrnxJILjqm9Yk5c8WgmSgzC1W-IXv3oUslKj0e3Ut79dJE6g4RdUp90gLbrq8Q9ucwg/exec',
+  accessKey: 'FT-2026-daralpadel-Hamid'
 };
