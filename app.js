@@ -20,18 +20,47 @@ function ensureBridge(){
   });
   return FT_BRIDGE_READY;
 }
-window.addEventListener('message',e=>{
-  if(!FT_CFG.apiUrl)return;
-  let expected;
-  try{expected=new URL(FT_CFG.apiUrl).origin}catch{return}
-  if(e.origin!==expected&&e.origin!=='https://script.googleusercontent.com')return;
-  const m=e.data||{};
-  if(m.type!=='FT_BRIDGE_RESPONSE'||!m.requestId)return;
-  const pending=FT_BRIDGE_PENDING.get(m.requestId);
-  if(!pending)return;
+window.addEventListener('message', e => {
+  if (!FT_CFG.apiUrl) return;
+
+  let allowed = false;
+
+  try {
+    const originUrl = new URL(e.origin);
+
+    allowed =
+      originUrl.hostname === 'script.google.com' ||
+      originUrl.hostname === 'script.googleusercontent.com' ||
+      originUrl.hostname.endsWith('.googleusercontent.com');
+  } catch {
+    return;
+  }
+
+  if (!allowed) return;
+
+  const m = e.data || {};
+
+  if (
+    m.type !== 'FT_BRIDGE_RESPONSE' ||
+    !m.requestId
+  ) {
+    return;
+  }
+
+  const pending = FT_BRIDGE_PENDING.get(m.requestId);
+
+  if (!pending) return;
+
   FT_BRIDGE_PENDING.delete(m.requestId);
   clearTimeout(pending.timer);
-  if(m.ok)pending.resolve(m.data);else pending.reject(Error(m.error||'Cloud request failed'));
+
+  if (m.ok) {
+    pending.resolve(m.data);
+  } else {
+    pending.reject(
+      Error(m.error || 'Cloud request failed')
+    );
+  }
 });
 async function cloudRequest(action,data={}){
   if(!cloudConfigured())throw Error('FT cloud is not configured');
