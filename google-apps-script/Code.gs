@@ -1,8 +1,9 @@
 /**
- * FT — Financial Tracker Google Sheets API
- * Deploy this project as a Google Apps Script Web App.
+ * FT — Financial Tracker Google Sheets Bridge API
+ * Deploy as a Google Apps Script Web App.
+ * Execute as: Me
+ * Who has access: Anyone
  */
-
 
 const SPREADSHEET_ID = '1e7S22MzhVP5n8d0JbOjy2V-ePc5_WHAtFuTg5FBnuA4';
 const ACCESS_KEY = 'FT-2026-daralpadel-Hamid';
@@ -10,48 +11,60 @@ const EXPENSES_SHEET = 'FT_Expenses';
 const SETTINGS_SHEET = 'FT_Settings';
 const HEADERS = ['id','date','description','category','quantity','unitCost','supplier','payment','notes','updatedAt'];
 
-function doGet(e) {
-  try {
-    checkKey_(e && e.parameter && e.parameter.key);
-    const action = (e && e.parameter && e.parameter.action) || 'bootstrap';
-    if (action !== 'bootstrap') throw new Error('Unsupported action');
-    setupSheets_();
-    return json_({ ok: true, expenses: readExpenses_(), settings: readSettings_() });
-  } catch (err) {
-    return json_({ ok: false, error: String(err && err.message || err) });
-  }
+// Serves a tiny browser bridge. The GitHub Pages app talks to this iframe via postMessage.
+// The bridge then calls server-side Apps Script functions through google.script.run.
+function doGet() {
+  const html = `<!doctype html><html><head><base target="_top"><meta charset="utf-8"></head><body>
+<script>
+window.addEventListener('message', function(event) {
+  var m = event.data || {};
+  if (m.type !== 'FT_BRIDGE_REQUEST' || !m.requestId) return;
+  var source = event.source;
+  var origin = event.origin || '*';
+  google.script.run
+    .withSuccessHandler(function(result) {
+      source.postMessage({type:'FT_BRIDGE_RESPONSE',requestId:m.requestId,ok:true,data:result}, origin === 'null' ? '*' : origin);
+    })
+    .withFailureHandler(function(err) {
+      source.postMessage({type:'FT_BRIDGE_RESPONSE',requestId:m.requestId,ok:false,error:(err && err.message) || String(err)}, origin === 'null' ? '*' : origin);
+    })
+    .ftApi(m.payload || {});
+});
+// Let the parent know that the bridge JavaScript is alive.
+try { parent.postMessage({type:'FT_BRIDGE_LOADED'}, '*'); } catch(e) {}
+<\/script></body></html>`;
+  return HtmlService.createHtmlOutput(html).setTitle('FT Cloud Bridge');
 }
 
-function doPost(e) {
+function ftApi(body) {
   const lock = LockService.getScriptLock();
   try {
     lock.waitLock(20000);
-    const body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    body = body || {};
     checkKey_(body.key);
     setupSheets_();
 
     switch (body.action) {
+      case 'bootstrap':
+        return { ok: true, expenses: readExpenses_(), settings: readSettings_() };
       case 'upsert':
         upsertExpense_(body.expense);
-        break;
+        return { ok: true };
       case 'bulkUpsert':
         (body.expenses || []).forEach(upsertExpense_);
-        break;
+        return { ok: true };
       case 'delete':
         deleteExpense_(String(body.id || ''));
-        break;
+        return { ok: true };
       case 'saveSettings':
         saveSettings_(body.settings || {});
-        break;
+        return { ok: true };
       case 'clear':
         clearExpenses_();
-        break;
+        return { ok: true };
       default:
         throw new Error('Unsupported action');
     }
-    return json_({ ok: true });
-  } catch (err) {
-    return json_({ ok: false, error: String(err && err.message || err) });
   } finally {
     try { lock.releaseLock(); } catch (_) {}
   }
@@ -151,8 +164,4 @@ function checkKey_(key) {
 function formatDate_(value) {
   if (value instanceof Date) return Utilities.formatDate(value, Session.getScriptTimeZone(), 'yyyy-MM-dd');
   return String(value || '').slice(0,10);
-}
-
-function json_(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }

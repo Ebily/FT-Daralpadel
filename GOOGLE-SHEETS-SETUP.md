@@ -53,3 +53,12 @@ Upload `index.html`, `styles.css`, `app.js`, and `config.js` to the repository u
 ## Security note
 
 This setup is appropriate for a small trusted internal business workflow. Because a static GitHub Pages site necessarily exposes its client-side configuration to anyone who can inspect the site, the access key is not equivalent to secure user authentication. If FT will hold sensitive business data or be publicly accessible, the next step should be Google Sign-In/Firebase Authentication or a private backend with per-user authorization.
+
+
+## IMPORTANT — Bridge version
+
+This corrected FT version uses an Apps Script HTML bridge instead of browser `fetch()` calls.
+After replacing `Code.gs`, go to **Deploy → Manage deployments → Edit → New version → Deploy**.
+Keep **Execute as: Me** and **Who has access: Anyone**.
+The `/exec` URL can stay the same when you update the existing deployment.
+Then upload the new `app.js` to GitHub and hard-refresh the FT page.
